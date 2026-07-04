@@ -1,4 +1,4 @@
-# Explaination of Task 1
+# Explanation of Task 1
 
 ## 1. The Task 
  

@@ -150,3 +150,5 @@ If you noticed that the code is pretty inefficiet, you'd be right. it took me li
 
 I'll be working on finding a realistic synthesisable method to perform this task, and update this folder as soon as i do.
 
+Also, the reason why the output image has a black background instead of no background like the input is because it is a screenshot of the actual output that vscode gave me. It wouldn't let me save the output for some reason but a screenshot shall suffice.
+

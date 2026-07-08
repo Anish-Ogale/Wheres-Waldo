@@ -6,7 +6,7 @@
 
  ## 2. The Solution
 
-### a. The decoder
+### a. The Encoder
 
 ```
 from PIL import Image

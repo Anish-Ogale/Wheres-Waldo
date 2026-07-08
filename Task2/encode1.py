@@ -2,7 +2,7 @@ from PIL import Image
 
 
 WIDTH = 256
-HEIGHT = 256
+HEIGHT = 254
 
 
 with open("hex_out.hex", "r") as f:

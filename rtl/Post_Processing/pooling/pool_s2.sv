@@ -1,8 +1,8 @@
 `timescale 1ns / 1ps
 
 
-module max_pool#(
-
+module pool_s2#(
+l
   parameter WIDTH = 416
 
 

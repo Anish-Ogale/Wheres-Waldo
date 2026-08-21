@@ -16,37 +16,38 @@ module FSM#(
         input rst,
         input start,     //starts the fpga fabric
         
-        output reg weight_load_en,
-        output reg [19:0] weight_addr,   
         output reg swap,   // swap fmap buffer banks
         output reg valid_in,    // starts the sys array
         output padding,  
         input [4:0] quantizer,
-        input fmap_load_done,
-        
         
         output done, 
-        output reg dma_ready,   //signal indicating that the systolic array is done processing elements
-        input dma_ack
+
+        // burst_sequencer interface (replaces old raw weight/dma ports)
+        output req,
+        input seq_done,
+        output we,
+        output [1:0] region_sel,
+        output reg [3:0] layer_count,
+        output reg [7:0] in_tile,
+        output reg [7:0] out_tile,
+        output reg [1:0] kx,
+        output reg [1:0] ky,
+        output reg [8:0] x,
+        output reg [8:0] y,
+        output reg [8:0] width_in_r,
+        output reg [7:0] num_in_tiles_r,
+        output reg kernel_size_r,
+
+        // accumulator control
+        output first_pass,
+        output finalize
        
     );
 
     reg [3:0] current_state;  // state registers 
     reg [3:0] next_state;     // state registers
     
-    
-    reg [1:0] kx;    //kernel counters
-    reg [1:0] ky;    //kernel counters
-    
-    
-    reg [8:0] x;    // image size counter
-    reg [8:0] y;    // image size counter
-    
-    reg [7:0] in_tile;
-    reg [7:0] out_tile;
-    
-    reg [3:0] layer_count;
-  
   
   //---------------------------
   // Layer data table 
@@ -63,17 +64,21 @@ module FSM#(
   reg [7:0] num_out_tiles;
   reg [7:0] weights_per_tile;
   
-  reg [8:0] width_in_r ;
   reg [10:0] channel_in_r;
   reg [10:0] channel_out_r;
-  reg kernel_size_r;
   reg pool_enable_r;
   reg pool_stride_r;
   reg relu_enable_r;
   
-  reg [7:0] num_in_tiles_r;
   reg [7:0] num_out_tiles_r;
   reg [7:0] weights_per_tile_r;
+
+  // fetch-once-per-in_tile tracking (step 5)
+  reg fetched_in_tile_valid;
+  reg [7:0] fetched_in_tile_r;
+
+  // single-cycle req pulse tracking (step 3)
+  reg req_issued;
   
     
   //---------------------------
@@ -92,7 +97,26 @@ module FSM#(
     wire [17:0] fmap_read_addr = y_actual*width_in_r + x_actual ;
     
     wire [1:0] k_max = kernel_size_r ? 2'd2 : 2'd0;
-  
+
+    // step 5: only fetch a new fmap tile when in_tile has actually changed
+    wire need_fetch = (!fetched_in_tile_valid) || (in_tile != fetched_in_tile_r);
+
+    // step 2: accumulator control signals
+    assign first_pass = (kx=='0) && (ky=='0) && (in_tile=='0);
+    assign finalize = (kx==k_max) && (ky==k_max) && (in_tile==num_in_tiles_r-1);
+
+    // step 4: region_sel per state
+    assign region_sel = (current_state==LOAD_WEIGHTS) ? 2'b00 :
+                         (current_state==FILL_FMAP)   ? 2'b01 :
+                         (current_state==WRITEBACK)   ? 2'b10 :
+                                                         2'b00;
+
+    // step 3: read during weight/fmap loads, write during writeback
+    assign we = (current_state==WRITEBACK);
+
+    // step 3 + 5: single-cycle req pulse, gated by need_fetch for FILL_FMAP
+    assign req = ((current_state==LOAD_WEIGHTS) && !req_issued) ||
+                 ((current_state==FILL_FMAP) && need_fetch && !req_issued);
   
   
   always @(*) begin 
@@ -201,6 +225,30 @@ module FSM#(
         end 
     end 
 
+    // step 3: track whether the req pulse for the current state has fired yet
+    always @(posedge clk) begin
+        if(rst) begin
+            req_issued <= 1'b0;
+        end else if(current_state==LOAD_WEIGHTS || current_state==FILL_FMAP) begin
+            req_issued <= 1'b1;
+        end else begin
+            req_issued <= 1'b0;
+        end
+    end
+
+    // step 5: remember which in_tile's fmap is currently resident
+    always @(posedge clk) begin
+        if(rst) begin
+            fetched_in_tile_valid <= 1'b0;
+            fetched_in_tile_r <= '0;
+        end else if(current_state==LOAD_LAYER_PARAMS) begin
+            fetched_in_tile_valid <= 1'b0;
+        end else if(current_state==FILL_FMAP && seq_done) begin
+            fetched_in_tile_r <= in_tile;
+            fetched_in_tile_valid <= 1'b1;
+        end
+    end
+
  
     always @(posedge clk) begin
         if(rst) begin
@@ -222,11 +270,8 @@ module FSM#(
                          y <= '0;
                          in_tile <= '0;
                          out_tile <= '0;
-                         weight_addr <= '0;
-                         weight_load_en <= '0;
                          valid_in <= '0;
                          swap <= '0;
-                         dma_ready <= '0;
                          
                 
                 end
@@ -242,20 +287,16 @@ module FSM#(
                 num_in_tiles_r <= num_in_tiles;
                 num_out_tiles_r <= num_out_tiles;
                 weights_per_tile_r <= weights_per_tile;
-                weight_addr <= '0;
                 
                 end
                 
                 LOAD_WEIGHTS : begin
-                weight_load_en <= 1'b1;
-                weight_addr <= weight_addr + 1'b1;
                 
                 
                 
                 end
                 
                 FILL_FMAP : begin
-                weight_load_en <= '0;
                 
                 
                 end
@@ -294,15 +335,12 @@ module FSM#(
                 end
                 
                 WRITEBACK : begin
-                dma_ready <= 1'b1;
                 
                 end
                 
                 NEXT_TILE_CHECK : begin
                 x <= '0;
                 y <= '0;
-                weight_addr <= '0;
-                dma_ready <= '0;
                 
                 if(kx == k_max) begin
                     kx <= '0;
@@ -359,17 +397,16 @@ module FSM#(
             
             LOAD_WEIGHTS : begin
             
-            if(weight_addr == weights_per_tile_r - 1'b1) begin
-              
+            if(seq_done) begin
                 next_state = FILL_FMAP;
             end
-            
-            
             
             end
             
             FILL_FMAP : begin
-            if(fmap_load_done) begin
+            if(!need_fetch) begin
+                next_state = CALC;
+            end else if(seq_done) begin
                 next_state = CALC;
             end
             
@@ -388,10 +425,17 @@ module FSM#(
             
             DRAIN : begin
             
-            if(pool_enable_r) begin
-                next_state = POOL;
+            // step 1: only route to POOL/WRITEBACK once the out_tile's
+            // full kx/ky/in_tile sweep has finished, else go straight back
+            // around the loop with no output write
+            if(finalize) begin
+                if(pool_enable_r) begin
+                    next_state = POOL;
+                end else begin
+                    next_state = WRITEBACK;
+                end
             end else begin
-                next_state = WRITEBACK;
+                next_state = NEXT_TILE_CHECK;
             end
             
             end 
@@ -404,7 +448,7 @@ module FSM#(
             
             WRITEBACK : begin
             
-            if(dma_ack) begin
+            if(seq_done) begin
                 next_state = NEXT_TILE_CHECK;
             end
             
@@ -430,5 +474,3 @@ module FSM#(
                 
                 
 endmodule
-
-

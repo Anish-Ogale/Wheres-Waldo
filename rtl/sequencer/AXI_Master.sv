@@ -143,7 +143,7 @@ assign bram_wdata = rdata;
               wvalid <= '1;
               wstrb <= 4'b1111;
               if(wready&&wvalid) begin
-                burst_count <= burst_count + '1;
+                burst_count <= burst_count + 1'b1;
                 
                
               end
@@ -169,9 +169,9 @@ assign bram_wdata = rdata;
             
             READ_DATA : begin
               arvalid <= '0;
-              rready <= '1;
+              rready <= 1'b1;
               if(rvalid&&rready)begin
-                burst_count <= burst_count + '1;
+                burst_count <= burst_count + 1'b1;
                 
                 
               
@@ -228,7 +228,7 @@ assign bram_wdata = rdata;
         WAIT_BRESP : begin
           
           if(bvalid) begin
-            ack = '1;
+            ack = 1'b1;
             next_state = IDLE;
           end
         
@@ -247,7 +247,7 @@ assign bram_wdata = rdata;
           if(rready) begin
             if(rvalid) begin
               if(rlast) begin
-                ack = '1;
+                ack = 1'b1;
                 next_state = IDLE;
               end
             end
@@ -268,4 +268,3 @@ assign bram_wdata = rdata;
     
     
 endmodule
-

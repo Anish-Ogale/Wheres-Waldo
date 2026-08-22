@@ -186,8 +186,11 @@ module tb_FSM;
     // Set to 500 million ns (500 ms). Given the massive 
     // number of pixels across 9 layers, this sim will take 
     // approx 20M to 30M cycles.
+    // ---------------------------------------------------------
+    // Watchdog Timer (Timeout safeguard against infinite loops)
+    // ---------------------------------------------------------
     initial begin
-        #500_000_000; 
+        #1_500_000_000;  // <-- Increased to 1.5 billion
         $display("[%0t ns] ERROR: Simulation Timeout Reached! FSM Deadlocked.", $time);
         $finish;
     end

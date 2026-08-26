@@ -3,37 +3,37 @@
 module ov7670_capture #(
     parameter int ACTIVE_PIXELS_PER_LINE = 320
 )(
-    input  logic pclk,
-    input  logic rst,
-    input  logic vsync,
-    input  logic href,
-    input  logic [7:0]  d_in,
+    input  logic        pclk,
+    input  logic        rst,
+    input  logic        vsync,
+    input  logic        href,
+    input  logic [5:0]  d_in,        // D7:D2 only
 
     output logic [15:0] m_axis_tdata,
-    output logic m_axis_tvalid,
-    input  logic m_axis_tready,  
-    output logic m_axis_tlast,
-    output logic m_axis_tuser
+    output logic         m_axis_tvalid,
+    input  logic         m_axis_tready,  
+    output logic         m_axis_tlast,
+    output logic         m_axis_tuser
 );
 
     logic [15:0] pixel_data;
-    logic pixel_valid;
-    logic sof_pulse;
+    logic        pixel_valid;
+    logic        sof_pulse;
 
     byte_pair_merge u_byte_pair_merge (
-        .pclk (pclk),
-        .rst  (rst),
-        .href (href),
-        .d_in (d_in),
-        .pixel_out (pixel_data),
+        .pclk        (pclk),
+        .rst         (rst),
+        .href        (href),
+        .d_in        (d_in),
+        .pixel_out   (pixel_data),
         .pixel_valid (pixel_valid)
     );
 
     frame_sync u_frame_sync (
-        .clk (pclk),
-        .rst (rst),
+        .clk   (pclk),
+        .rst   (rst),
         .vsync (vsync),
-        .sof (sof_pulse)
+        .sof   (sof_pulse)
     );
 
     logic href_d;
@@ -42,7 +42,7 @@ module ov7670_capture #(
         else     href_d <= href;
     end
 
-    wire line_start = href & ~href_d;   
+    wire line_start = href & ~href_d;   // rising edge of href = new line begins
 
     localparam int COL_W = $clog2(ACTIVE_PIXELS_PER_LINE);
     logic [COL_W-1:0] pixel_col;
@@ -67,7 +67,7 @@ module ov7670_capture #(
             sof_pending <= 1'b0;
         end
     end
-
+    
     always_ff @(posedge pclk) begin
         if (rst) begin
             m_axis_tdata  <= 16'h0000;

@@ -51,7 +51,8 @@ localparam WAIT = 2'd2
         input arready,
 
         output [31:0] bram_wdata,
-        output bram_we,
+        output weight_we,
+        output ifm_we,
         input [31:0] bram_rdata,
         output [31:0] bram_addr,
 
@@ -71,6 +72,11 @@ localparam WAIT = 2'd2
     wire axi_ack;
 
     reg [1:0] state;
+
+    wire bram_we_internal;
+
+    assign weight_we = bram_we_internal && (region_sel == 2'b00);
+    assign ifm_we    = bram_we_internal && (region_sel == 2'b01);
 
 
     address_gen u_addr_gen (
@@ -128,7 +134,7 @@ localparam WAIT = 2'd2
         .arready(arready),
 
         .bram_wdata(bram_wdata),
-        .bram_we(bram_we),
+        .bram_we(bram_we_internal),
         .bram_rdata(bram_rdata),
         .bram_addr(bram_addr)
     );

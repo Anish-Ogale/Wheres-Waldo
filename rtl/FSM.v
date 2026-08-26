@@ -9,7 +9,8 @@ module FSM #(
     parameter DRAIN = 5,
     parameter POOL = 6,
     parameter WRITEBACK = 7,
-    parameter NEXT_TILE_CHECK = 8
+    parameter NEXT_TILE_CHECK = 8,
+    parameter LOAD_ARRAY = 9
 )(
     input wire clk,
     input wire rst,
@@ -38,11 +39,20 @@ module FSM #(
     output wire pool_start,
     input wire pool_done,
     output wire pool_select,
-    output reg relu_enable_r
+    output reg relu_enable_r,
+    output wire [17:0] fmap_read_addr,
+    output wire [17:0] out_pixel_addr,
+    output wire [9:0] weight_addr,
+    output wire wb_rd_en,
+    output wire weight_ena,
+    output wire load_en
 );
 
     reg [3:0] current_state;
     reg [3:0] next_state;
+
+    localparam ARRAY_SIZE = 4'd8;
+    reg [3:0] load_cnt;
     
     reg [8:0] width_in ;
     reg [10:0] channel_in;
@@ -79,7 +89,14 @@ module FSM #(
     wire [8:0] x_actual = kernel_size_r ? (x + kx - 1) : x;
     wire [8:0] y_actual = kernel_size_r ? (y + ky - 1) : y;
     
-    wire [17:0] fmap_read_addr = y_actual*width_in_r + x_actual ;
+    assign fmap_read_addr = y_actual*width_in_r + x_actual ;
+    assign out_pixel_addr = y*width_in_r + x ;
+
+    assign weight_addr = load_cnt;
+    assign weight_ena = (current_state==LOAD_ARRAY) && (load_cnt < ARRAY_SIZE);
+    assign load_en = (current_state==LOAD_ARRAY) && (load_cnt >= 4'd1);
+
+    assign wb_rd_en = (current_state==WRITEBACK);
     
     wire [1:0] k_max = kernel_size_r ? 2'd2 : 2'd0;
 
@@ -204,8 +221,20 @@ module FSM #(
         num_out_tiles = (channel_out + 11'd7)/11'd8;
     end
     
-    always @(posedge clk) begin   
-        if(rst) begin 
+    always @(posedge clk) begin
+        if(rst) begin
+            load_cnt <= 4'd0;
+        end else if(current_state==LOAD_ARRAY) begin
+            if(load_cnt < ARRAY_SIZE) begin
+                load_cnt <= load_cnt + 1'b1;
+            end
+        end else begin
+            load_cnt <= 4'd0;
+        end
+    end
+
+    always @(posedge clk) begin
+        if(rst) begin
             current_state <= IDLE;  
         end else begin 
             current_state <= next_state; 
@@ -368,8 +397,14 @@ module FSM #(
             
             FILL_FMAP : begin
                 if(!need_fetch) begin
-                    next_state = CALC;
+                    next_state = LOAD_ARRAY;
                 end else if(seq_done) begin
+                    next_state = LOAD_ARRAY;
+                end
+            end
+            
+            LOAD_ARRAY : begin
+                if(load_cnt==ARRAY_SIZE) begin
                     next_state = CALC;
                 end
             end

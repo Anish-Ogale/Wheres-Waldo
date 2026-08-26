@@ -8,6 +8,7 @@ module calculation_block #(
     input signed [(8*size)-1:0] pixel_in,
     input signed [(8*size)-1:0] weight_in,
     input load_en,
+    input padding,
     output signed [(32*size)-1:0] sum_out
 );
 
@@ -19,6 +20,7 @@ module calculation_block #(
     ) skewer_inst (
         .clk(clk),
         .pixel_in(pixel_in),
+        .padding(padding),
         .pixel_out(skewed_pixel)
     );
 

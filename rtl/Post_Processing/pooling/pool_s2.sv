@@ -2,8 +2,7 @@
 
 
 module pool_s2#(
-l
-  parameter WIDTH = 416
+  parameter WIDTH = 16
 
 
 )(
@@ -12,6 +11,8 @@ l
   
   
         input rst,
+        input tile_start,
+        input [4:0] tile_width,
         input signed [7:0] pixel, // Bottom Right 
         input signed [7:0] pixel_prev, // Top Right
         
@@ -30,7 +31,10 @@ l
     reg stage2_en;
     
     always @(posedge clk) begin
-    if(valid_in) begin
+    if(rst || tile_start) begin
+        pixel_del <= 8'd0;
+        pixel_prev_del <= 8'd0;
+    end else if(valid_in) begin
         pixel_del <= pixel;
         pixel_prev_del <= pixel_prev;
        
@@ -47,11 +51,13 @@ l
   
   
   always @(posedge clk) begin
-    if(rst) begin      // reset condition
+    if(rst || tile_start) begin      // reset condition
       count_x <= '0;
       count_y <= '0;
       stage2_en <= 1'b0;
       valid_out <= 1'b0;
+      max_top <= 8'd0;
+      max_bottom <= 8'd0;
     end else begin
       
       stage2_en <= 1'b0;
@@ -60,14 +66,14 @@ l
       if(valid_in) begin
       
       
-      if(count_x == WIDTH-1) begin // column counter 
+      if(count_x == tile_width-1) begin // column counter
         count_x <= '0;
       end else begin
         count_x <= count_x +1'b1;
       end
       
-      if(count_x == WIDTH-1) begin
-        if(count_y ==WIDTH-1) begin
+      if(count_x == tile_width-1) begin
+        if(count_y ==tile_width-1) begin
             count_y <= '0;
             end else begin
             count_y <= count_y +1'b1;

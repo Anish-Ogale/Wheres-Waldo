@@ -1,0 +1,4 @@
+# Keep source identical on Windows and Linux; HDL tools accept LF natively.
+* text=auto eol=lf
+*.v  text eol=lf
+*.sv text eol=lf

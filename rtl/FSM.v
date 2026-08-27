@@ -16,9 +16,10 @@ module FSM #(
     input wire rst,
     input wire start,
     output wire ifm_swap,
+    output wire ifm_rd_done,
     output wire ofm_wr_swap,
     output wire ofm_rd_swap,
-    output reg valid_in,
+    output wire valid_in,
     output wire padding,
     output wire done,
     output wire req,
@@ -38,6 +39,11 @@ module FSM #(
     output wire first_pass,
     output wire finalize,
     output wire pool_start,
+
+    output wire pool_tile_start,
+    output wire [4:0] active_tile_width,
+    output wire [4:0] active_tile_height,
+    output wire [9:0] ofm_expected_writes,
     input wire pool_done,
     output wire pool_select,
     output reg pool_enable_r,
@@ -96,8 +102,21 @@ module FSM #(
 
     assign padding = (bounds_x || bounds_y);
 
+
+    assign valid_in = (current_state == CALC) && in_bounds;
+
     assign x = tile_x_base + tile_x;
     assign y = tile_y_base + tile_y;
+    assign active_tile_width = (width_in_r - tile_x_base < TILE_DIM) ?
+                               (width_in_r - tile_x_base) : TILE_DIM;
+    assign active_tile_height = (width_in_r - tile_y_base < TILE_DIM) ?
+                                (width_in_r - tile_y_base) : TILE_DIM;
+   
+    assign ofm_expected_writes = !pool_enable_r ?
+                                 active_tile_width * active_tile_height :
+                                 pool_stride_r ?
+                                 (active_tile_width >> 1) * (active_tile_height >> 1) :
+                                 (active_tile_width - 1'b1) * (active_tile_height - 1'b1);
 
     wire [4:0] hx = tile_x + kx;
     wire [4:0] hy = tile_y + ky;
@@ -142,10 +161,14 @@ module FSM #(
 
     assign pool_select = pool_stride_r;
     assign pool_start = (current_state==POOL) && !pool_req_issued;
+    assign pool_tile_start = (current_state==CALC) && finalize &&
+                             (tile_x==0) && (tile_y==0);
 
     assign ifm_swap = (current_state==FILL_FMAP) && seq_done;
-    assign ofm_wr_swap = (current_state==POOL && pool_done) ||
-                          (current_state==DRAIN && drain_wait_done && finalize && !pool_enable_r);
+    assign ifm_rd_done = (current_state==CALC) &&
+                         (tile_x==TILE_DIM-1) && (tile_y==TILE_DIM-1);
+
+    assign ofm_wr_swap = (current_state==POOL && pool_done);
     assign ofm_rd_swap = (current_state==WRITEBACK) && seq_done;
 
     always @(*) begin
@@ -156,7 +179,7 @@ module FSM #(
                 channel_out = 11'd16;
                 kernel_size = 1'b1;
                 pool_enable = 1'b1;
-                pool_stride = 1'b0;
+                pool_stride = 1'b1;
                 relu_enable = 1'b1;
             end
             4'd1 : begin
@@ -165,7 +188,7 @@ module FSM #(
                 channel_out = 11'd32;
                 kernel_size = 1'b1;
                 pool_enable = 1'b1;
-                pool_stride = 1'b0;
+                pool_stride = 1'b1;
                 relu_enable = 1'b1;
             end
             4'd2 : begin
@@ -174,7 +197,7 @@ module FSM #(
                 channel_out = 11'd64;
                 kernel_size = 1'b1;
                 pool_enable = 1'b1;
-                pool_stride = 1'b0;
+                pool_stride = 1'b1;
                 relu_enable = 1'b1;
             end
             4'd3 : begin
@@ -183,7 +206,7 @@ module FSM #(
                 channel_out = 11'd128;
                 kernel_size = 1'b1;
                 pool_enable = 1'b1;
-                pool_stride = 1'b0;
+                pool_stride = 1'b1;
                 relu_enable = 1'b1;
             end
             4'd4 : begin
@@ -192,7 +215,7 @@ module FSM #(
                 channel_out = 11'd256;
                 kernel_size = 1'b1;
                 pool_enable = 1'b1;
-                pool_stride = 1'b0;
+                pool_stride = 1'b1;
                 relu_enable = 1'b1;
             end
             4'd5 : begin
@@ -201,7 +224,7 @@ module FSM #(
                 channel_out = 11'd512;
                 kernel_size = 1'b1;
                 pool_enable = 1'b1;
-                pool_stride = 1'b1;
+                pool_stride = 1'b0;
                 relu_enable = 1'b1;
             end
             4'd6 : begin
@@ -339,7 +362,6 @@ module FSM #(
                     tile_y_base <= 9'd0;
                     in_tile <= 8'd0;
                     out_tile <= 8'd0;
-                    valid_in <= 1'b0;
                 end
 
                 LOAD_LAYER_PARAMS : begin
@@ -361,7 +383,6 @@ module FSM #(
                 end
 
                 CALC : begin
-                    valid_in <= in_bounds;
                     if(tile_x == TILE_DIM-1) begin
                         tile_x <= 5'd0;
                         if(tile_y == TILE_DIM-1) begin
@@ -375,7 +396,6 @@ module FSM #(
                 end
 
                 DRAIN: begin
-                    valid_in <= 1'b0;
                 end
 
                 POOL : begin
@@ -470,11 +490,8 @@ module FSM #(
             DRAIN : begin
                 if(drain_wait_done) begin
                     if(finalize) begin
-                        if(pool_enable_r) begin
-                            next_state = POOL;
-                        end else begin
-                            next_state = WRITEBACK;
-                        end
+
+                        next_state = POOL;
                     end else begin
                         next_state = NEXT_TILE_CHECK;
                     end

@@ -1,10 +1,12 @@
 `timescale 1ns / 1ps
 
 module pooling#(
-  parameter WIDTH = 416
+  parameter WIDTH = 16
 )(
   input clk,
   input rst,
+  input tile_start,
+  input [4:0] tile_width,
   input signed [7:0] pixel,
   input buf_en,
   input valid_in,
@@ -24,7 +26,7 @@ module pooling#(
   reg valid_in_align;
 
   always @(posedge clk) begin
-    if (rst) begin
+    if (rst || tile_start) begin
       pixel_align <= 8'd0;
       valid_in_align <= 1'b0;
     end else begin
@@ -38,6 +40,8 @@ module pooling#(
   ) u_linebuf (
     .clk(clk),
     .rst(rst),
+    .tile_start(tile_start),
+    .tile_width(tile_width),
     .pixel(pixel),
     .pixel_prev(pixel_prev),
     .buf_en(buf_en)
@@ -48,6 +52,8 @@ module pooling#(
   ) u_pool_s1 (
     .clk(clk),
     .rst(rst),
+    .tile_start(tile_start),
+    .tile_width(tile_width),
     .pixel(pixel_align),       
     .pixel_prev(pixel_prev),
     .pooled(pooled_s1),
@@ -60,6 +66,8 @@ module pooling#(
   ) u_pool_s2 (
     .clk(clk),
     .rst(rst),
+    .tile_start(tile_start),
+    .tile_width(tile_width),
     .pixel(pixel_align),       
     .pixel_prev(pixel_prev),
     .pooled(pooled_s2),

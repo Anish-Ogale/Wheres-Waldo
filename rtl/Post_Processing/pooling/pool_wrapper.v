@@ -1,11 +1,13 @@
 `timescale 1ns / 1ps
 
 module pool_wrapper #(
-    parameter WIDTH = 416,
+    parameter WIDTH = 16,
     parameter NUM_CHANNELS = 8
 )(
     input clk,
     input rst,
+    input tile_start,
+    input [4:0] tile_width,
     input signed [63:0] pixel_flat,
     input buf_en,
     input valid_in,
@@ -24,6 +26,8 @@ module pool_wrapper #(
             ) u_pooling (
                 .clk(clk),
                 .rst(rst),
+                .tile_start(tile_start),
+                .tile_width(tile_width),
                 .pixel(pixel_flat[i*8 +: 8]),
                 .buf_en(buf_en),
                 .valid_in(valid_in),

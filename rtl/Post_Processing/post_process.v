@@ -12,7 +12,8 @@ module post_process (
     input signed [15:0] scale,
     input [4:0] shift,
     output out_valid,
-    output [63:0] data_out
+    output [63:0] data_out,
+    output [8:0] addr_out
 );
 
     wire acc_valid_out;
@@ -26,10 +27,12 @@ module post_process (
 
     reg signed [15:0] scale_pipe [0:2];
     reg [4:0] shift_pipe [0:2];
+    reg [8:0] addr_pipe [0:2];
 
     initial begin
         scale_pipe[0] = 0; scale_pipe[1] = 0; scale_pipe[2] = 0;
         shift_pipe[0] = 0; shift_pipe[1] = 0; shift_pipe[2] = 0;
+        addr_pipe[0] = 0; addr_pipe[1] = 0; addr_pipe[2] = 0;
         relu_valid_out = 0;
         relu_enable_d = 0;
     end
@@ -43,6 +46,17 @@ module post_process (
 
         scale_pipe[2] <= scale_pipe[1];
         shift_pipe[2] <= shift_pipe[1];
+
+
+        if (rst) begin
+            addr_pipe[0] <= 9'd0;
+            addr_pipe[1] <= 9'd0;
+            addr_pipe[2] <= 9'd0;
+        end else begin
+            addr_pipe[0] <= acc_addr_out;
+            addr_pipe[1] <= addr_pipe[0];
+            addr_pipe[2] <= addr_pipe[1];
+        end
     end
 
     accumulator #(
@@ -93,5 +107,7 @@ module post_process (
         .in_data_flat(post_relu_data),
         .out_data_flat(data_out)
     );
+
+    assign addr_out = addr_pipe[2];
 
 endmodule

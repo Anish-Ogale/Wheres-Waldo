@@ -13,6 +13,11 @@ module ofm_buffer #(
     input [(DATA_WIDTH*ARRAY_SIZE)-1:0] wr_data,
     output wire wr_ready,
     input wr_done,
+   
+    input tile_start,
+    input pool_enable,
+    input [ADDR_WIDTH-1:0] expected_writes,
+    output reg stream_done,
 
     input rd_en,
     input [ADDR_WIDTH:0] rd_addr,
@@ -36,6 +41,8 @@ module ofm_buffer #(
 
     reg [WORD_WIDTH-1:0] raw_rd_data;
     reg rd_half_sel;
+    reg [ADDR_WIDTH-1:0] pooled_wr_addr;
+    wire [ADDR_WIDTH-1:0] selected_wr_addr = pool_enable ? pooled_wr_addr : wr_addr;
 
     assign wr_ready = (wr_select == 1'b0) ? ~buff_1_full : ~buff_2_full;
     assign rd_valid = (rd_select == 1'b0) ? buff_1_full : buff_2_full;
@@ -73,11 +80,19 @@ module ofm_buffer #(
     end
 
     always @(posedge clk) begin
-        if (wr_en && wr_ready) begin
+        if (rst || tile_start) begin
+            pooled_wr_addr <= {ADDR_WIDTH{1'b0}};
+            stream_done <= 1'b0;
+        end else if (wr_en && wr_ready && !stream_done) begin
             if (wr_select == 1'b0)
-                buff_1[wr_addr] <= wr_data;
+                buff_1[selected_wr_addr] <= wr_data;
             else
-                buff_2[wr_addr] <= wr_data;
+                buff_2[selected_wr_addr] <= wr_data;
+
+            if (selected_wr_addr == expected_writes - 1'b1)
+                stream_done <= 1'b1;
+            else if (pool_enable)
+                pooled_wr_addr <= pooled_wr_addr + 1'b1;
         end
     end
 

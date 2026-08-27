@@ -2,6 +2,10 @@
 
 module sequencer #(
 
+parameter [31:0] WEIGHT_LOCAL_BASE = 32'd0,
+parameter [31:0] IFM_LOCAL_BASE    = 32'd0,
+parameter [31:0] OFM_LOCAL_BASE    = 32'd0,
+
 localparam IDLE = 2'd0,
 localparam ISSUE = 2'd1,
 localparam WAIT = 2'd2
@@ -23,7 +27,6 @@ localparam WAIT = 2'd2
         input [7:0] num_in_tiles,
         input [8:0] width_in,
         input kernel_size,
-        input [31:0] local_addr,
 
         input awready,
         output [7:0] awlen,
@@ -74,6 +77,9 @@ localparam WAIT = 2'd2
     reg [1:0] state;
 
     wire bram_we_internal;
+    wire [31:0] local_addr = (region_sel == 2'b00) ? WEIGHT_LOCAL_BASE :
+                             (region_sel == 2'b01) ? IFM_LOCAL_BASE :
+                             (region_sel == 2'b10) ? OFM_LOCAL_BASE : 32'd0;
 
     assign weight_we = bram_we_internal && (region_sel == 2'b00);
     assign ifm_we    = bram_we_internal && (region_sel == 2'b01);

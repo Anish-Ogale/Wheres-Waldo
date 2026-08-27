@@ -9,7 +9,15 @@ module calculation_block #(
     input signed [(8*size)-1:0] weight_in,
     input load_en,
     input padding,
-    output signed [(32*size)-1:0] sum_out
+    output signed [(32*size)-1:0] sum_out,
+    input valid_in,
+    input [8:0] addr_in,
+    input first_in,
+    input last_in,
+    output valid_out,
+    output [8:0] addr_out,
+    output first_out,
+    output last_out
 );
 
     wire signed [(8*size)-1:0] skewed_pixel;
@@ -42,5 +50,35 @@ module calculation_block #(
         .pixel_in(raw_sum),
         .pixel_out(sum_out)
     );
+
+   
+    reg [14:0] valid_pipe, first_pipe, last_pipe;
+    reg [8:0] addr_pipe [0:14];
+    integer tag_i;
+    always @(posedge clk) begin
+        if (rst) begin
+            valid_pipe <= 15'd0;
+            first_pipe <= 15'd0;
+            last_pipe  <= 15'd0;
+            for (tag_i = 0; tag_i < 15; tag_i = tag_i + 1)
+                addr_pipe[tag_i] <= 9'd0;
+        end else begin
+            valid_pipe[0] <= valid_in;
+            first_pipe[0] <= first_in;
+            last_pipe[0]  <= last_in;
+            addr_pipe[0]  <= addr_in;
+            for (tag_i = 1; tag_i < 15; tag_i = tag_i + 1) begin
+                valid_pipe[tag_i] <= valid_pipe[tag_i-1];
+                first_pipe[tag_i] <= first_pipe[tag_i-1];
+                last_pipe[tag_i]  <= last_pipe[tag_i-1];
+                addr_pipe[tag_i]  <= addr_pipe[tag_i-1];
+            end
+        end
+    end
+
+    assign valid_out = valid_pipe[14];
+    assign addr_out  = addr_pipe[14];
+    assign first_out = first_pipe[14];
+    assign last_out  = last_pipe[14];
 
 endmodule

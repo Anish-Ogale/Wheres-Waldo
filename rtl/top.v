@@ -11,8 +11,8 @@ module top (
     output wire [31:0] awaddr,
 
     input wire wready,
-    output wire [31:0] wdata,
-    output wire [3:0] wstrb,
+    output wire [63:0] wdata,
+    output wire [7:0] wstrb,
     output wire wlast,
     output wire wvalid,
 
@@ -20,7 +20,7 @@ module top (
     input wire bvalid,
     output wire bready,
 
-    input wire [31:0] rdata,
+    input wire [63:0] rdata,
     input wire rlast,
     input wire rvalid,
     output wire rready,
@@ -90,10 +90,10 @@ module top (
     wire FSM_done;
 
     
-    wire [31:0] bram_wdata;
+    wire [63:0] bram_wdata;
     wire weight_we;
     wire ifm_we;
-    wire [31:0] bram_rdata;
+    wire [63:0] bram_rdata;
     wire [31:0] bram_addr;
 
     
@@ -262,6 +262,8 @@ module top (
     ) u_calculation_block (
         .clk(clk),
         .rst(rst),
+        .layer_count(layer_count),
+        .in_tile(in_tile),
         .pixel_in(pixel_in),
         .weight_in(weight_in),
         .load_en(load_en), 

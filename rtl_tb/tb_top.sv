@@ -14,8 +14,8 @@ module tb_top ();
     wire [31:0] awaddr;
 
     wire wready;
-    wire [31:0] wdata;
-    wire [3:0] wstrb;
+    wire [63:0] wdata;
+    wire [7:0] wstrb;
     wire wlast;
     wire wvalid;
 
@@ -23,7 +23,7 @@ module tb_top ();
     wire bvalid;
     wire bready;
 
-    wire [31:0] rdata;
+    wire [63:0] rdata;
     wire rlast;
     wire rvalid;
     wire rready;
@@ -74,12 +74,12 @@ module tb_top ();
     // ---------------------------------------------------------
     // Simple AXI Slave Memory Model (16MB Word-Addressable DDR)
     // ---------------------------------------------------------
-    reg [31:0] mem [0:4194303]; // 4M words = 16MB
+    reg [63:0] mem [0:2097151]; // 2M double-words = 16MB
 
     // Read Channels
     reg arready_reg;
     reg rvalid_reg;
-    reg [31:0] rdata_reg;
+    reg [63:0] rdata_reg;
     reg rlast_reg;
     
     assign arready = arready_reg;
@@ -111,7 +111,7 @@ module tb_top ();
                         arready_reg <= 0;
                         
                         rvalid_reg <= 1;
-                        rdata_reg <= mem[araddr >> 2];
+                        rdata_reg <= mem[araddr >> 3]; // 8 bytes per word
                         rlast_reg <= (arlen == 0);
                         r_state <= R_DATA;
                     end else begin
@@ -127,8 +127,8 @@ module tb_top ();
                             r_state <= R_IDLE;
                         end else begin
                             read_count <= read_count + 1;
-                            read_addr <= read_addr + 4;
-                            rdata_reg <= mem[(read_addr + 4) >> 2];
+                            read_addr <= read_addr + 8;
+                            rdata_reg <= mem[(read_addr + 8) >> 3];
                             rlast_reg <= (read_count + 1 == read_len);
                         end
                     end
@@ -174,10 +174,14 @@ module tb_top ();
                 end
                 W_DATA: begin
                     if (wvalid && wready) begin
-                        if (wstrb[0]) mem[write_addr >> 2][7:0]   <= wdata[7:0];
-                        if (wstrb[1]) mem[write_addr >> 2][15:8]  <= wdata[15:8];
-                        if (wstrb[2]) mem[write_addr >> 2][23:16] <= wdata[23:16];
-                        if (wstrb[3]) mem[write_addr >> 2][31:24] <= wdata[31:24];
+                        if (wstrb[0]) mem[write_addr >> 3][7:0]   <= wdata[7:0];
+                        if (wstrb[1]) mem[write_addr >> 3][15:8]  <= wdata[15:8];
+                        if (wstrb[2]) mem[write_addr >> 3][23:16] <= wdata[23:16];
+                        if (wstrb[3]) mem[write_addr >> 3][31:24] <= wdata[31:24];
+                        if (wstrb[4]) mem[write_addr >> 3][39:32] <= wdata[39:32];
+                        if (wstrb[5]) mem[write_addr >> 3][47:40] <= wdata[47:40];
+                        if (wstrb[6]) mem[write_addr >> 3][55:48] <= wdata[55:48];
+                        if (wstrb[7]) mem[write_addr >> 3][63:56] <= wdata[63:56];
                         
                         if (wlast) begin
                             wready_reg <= 0;
@@ -185,7 +189,7 @@ module tb_top ();
                             bresp_reg <= 0; // OKAY
                             w_state <= W_RESP;
                         end else begin
-                            write_addr <= write_addr + 4;
+                            write_addr <= write_addr + 8;
                         end
                     end
                 end
@@ -208,10 +212,15 @@ module tb_top ();
         $display("==================================================");
         $display("[%0t] Initializing Memory Model with deterministic values...", $time);
         
-        // Fill memory with a deterministic pattern (e.g. 0x03020100 for word 0)
+        // Fill memory with a deterministic pattern (e.g. 0x0706050403020100 for word 0)
         // Helps to distinguish between default uninitialized states
-        for (i = 0; i < 4194304; i = i + 1) begin
-            mem[i] = { (($unsigned(i)*4+3)%256), (($unsigned(i)*4+2)%256), (($unsigned(i)*4+1)%256), (($unsigned(i)*4)%256) };
+        for (i = 0; i < 2097152; i = i + 1) begin
+            mem[i] = { 
+                (($unsigned(i)*8+7)%256), (($unsigned(i)*8+6)%256), 
+                (($unsigned(i)*8+5)%256), (($unsigned(i)*8+4)%256), 
+                (($unsigned(i)*8+3)%256), (($unsigned(i)*8+2)%256), 
+                (($unsigned(i)*8+1)%256), (($unsigned(i)*8)%256) 
+            };
         end
         
         $display("[%0t] Applying Reset...", $time);
@@ -240,7 +249,7 @@ module tb_top ();
                 $display("[%0t] Layer 0 Processing Completed! Moving to Layer 1.", $time);
             end
             begin
-                #500000; // 500us Timeout for simulation (adjust as necessary for full layer processing)
+                #50000000; // 50ms Timeout for simulation (adjust as necessary for full layer processing)
                 $display("[%0t] Timeout reached. This might be normal if the layer takes a long time.", $time);
             end
         join_any
@@ -249,11 +258,14 @@ module tb_top ();
         
         // Inspect a slice of memory to check if anything was overwritten
         // Note: A real check would look at the exact OFM base address
-        for (i = 0; i < 4194304; i = i + 1) begin
-            if (mem[i] !== { (($unsigned(i)*4+3)%256), (($unsigned(i)*4+2)%256), (($unsigned(i)*4+1)%256), (($unsigned(i)*4)%256) }) begin
-                $display("Mem[%0h] (Addr %0h) = %h", i, i*4, mem[i]);
-                // Stop after showing some changes to avoid flooding log
-                if (i > 1000) break;
+        for (i = 0; i < 2097152; i = i + 1) begin
+            if (mem[i] !== { 
+                (($unsigned(i)*8+7)%256), (($unsigned(i)*8+6)%256), 
+                (($unsigned(i)*8+5)%256), (($unsigned(i)*8+4)%256), 
+                (($unsigned(i)*8+3)%256), (($unsigned(i)*8+2)%256), 
+                (($unsigned(i)*8+1)%256), (($unsigned(i)*8)%256) 
+            }) begin
+                $display("Mem[%0h] (Addr %0h) = %h", i, i*8, mem[i]);
             end
         end
         

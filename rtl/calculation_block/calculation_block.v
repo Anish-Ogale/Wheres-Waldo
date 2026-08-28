@@ -5,6 +5,8 @@ module calculation_block #(
 )(
     input clk,
     input rst,
+    input [3:0] layer_count,
+    input [7:0] in_tile,
     input signed [(8*size)-1:0] pixel_in,
     input signed [(8*size)-1:0] weight_in,
     input load_en,
@@ -23,11 +25,43 @@ module calculation_block #(
     wire signed [(8*size)-1:0] skewed_pixel;
     wire signed [(32*size)-1:0] raw_sum;
 
+    reg [10:0] channel_in;
+    reg [(8*size)-1:0] masked_pixel;
+
+    always @(*) begin
+        case(layer_count)
+            4'd0: channel_in = 11'd3;
+            4'd1: channel_in = 11'd16;
+            4'd2: channel_in = 11'd32;
+            4'd3: channel_in = 11'd64;
+            4'd4: channel_in = 11'd128;
+            4'd5: channel_in = 11'd256;
+            4'd6: channel_in = 11'd512;
+            4'd7: channel_in = 11'd1024;
+            4'd8: channel_in = 11'd1024;
+            default: channel_in = 11'd0;
+        endcase
+        
+        masked_pixel = pixel_in;
+        if (in_tile == (channel_in - 1) / 8) begin
+            case (channel_in % 8)
+                1: masked_pixel[63:8] = 56'd0;
+                2: masked_pixel[63:16] = 48'd0;
+                3: masked_pixel[63:24] = 40'd0;
+                4: masked_pixel[63:32] = 32'd0;
+                5: masked_pixel[63:40] = 24'd0;
+                6: masked_pixel[63:48] = 16'd0;
+                7: masked_pixel[63:56] = 8'd0;
+                0: ; 
+            endcase
+        end
+    end
+
     skewer #(
         .size(size)
     ) skewer_inst (
         .clk(clk),
-        .pixel_in(pixel_in),
+        .pixel_in(masked_pixel),
         .padding(padding),
         .pixel_out(skewed_pixel)
     );

@@ -36,8 +36,8 @@ module AXI_Master#(
             //write data channel
             
             input wready,       //slave asserts high when it is ready to accept data
-            output  [31:0] wdata,        //data to be written to the ddr3
-            output reg [3:0] wstrb,         //
+            output  [63:0] wdata,        //data to be written to the ddr3
+            output reg [7:0] wstrb,         //
             output  wlast,           // high on the last burst
             output reg wvalid,       //goes high when wdata is valid
             
@@ -55,7 +55,7 @@ module AXI_Master#(
             //read data channel
             
             
-            input [31:0] rdata,     //data coming from ddr3
+            input [63:0] rdata,     //data coming from ddr3
             input rlast,           //signals high when the last burst is sent
             input rvalid,           //slave asserts high when rdata is valid
             output reg rready,          //master asserts hoigh when it is ready to recieve data
@@ -72,9 +72,9 @@ module AXI_Master#(
 //------------------------------------------------------------------
   
   //bram interface (connects to the accumulator)
-  output  [31:0] bram_wdata, 	//data from ddr3, written to bram
+  output  [63:0] bram_wdata, 	//data from ddr3, written to bram
   output  bram_we,					//write enable signal
-  input [31:0] bram_rdata,
+  input [63:0] bram_rdata,
   output  [31:0] bram_addr//data read from bram, sent to ddr3
              
             
@@ -141,7 +141,7 @@ assign bram_wdata = rdata;
             WRITE_DATA : begin
               awvalid <= '0;
               wvalid <= '1;
-              wstrb <= 4'b1111;
+              wstrb <= 8'hFF;
               if(wready&&wvalid) begin
                 burst_count <= burst_count + 1'b1;
                 

@@ -53,7 +53,9 @@ module FSM #(
     output wire [9:0] weight_addr,
     output wire wb_rd_en,
     output wire weight_ena,
-    output wire load_en
+    output wire load_en,
+    output reg signed [15:0] layer_scale,
+    output reg [4:0] layer_shift
 );
 
     reg [3:0] current_state;
@@ -174,6 +176,8 @@ module FSM #(
     always @(*) begin
         case(layer_count)
             4'd0 : begin
+                layer_scale = 16'd27209;
+                layer_shift = 5'd17;
                 width_in = 9'd416;
                 channel_in = 11'd3;
                 channel_out = 11'd16;
@@ -183,6 +187,8 @@ module FSM #(
                 relu_enable = 1'b1;
             end
             4'd1 : begin
+                layer_scale = 16'd21949;
+                layer_shift = 5'd22;
                 width_in = 9'd208;
                 channel_in = 11'd16;
                 channel_out = 11'd32;
@@ -192,6 +198,8 @@ module FSM #(
                 relu_enable = 1'b1;
             end
             4'd2 : begin
+                layer_scale = 16'd21687;
+                layer_shift = 5'd21;
                 width_in = 9'd104;
                 channel_in = 11'd32;
                 channel_out = 11'd64;
@@ -201,6 +209,8 @@ module FSM #(
                 relu_enable = 1'b1;
             end
             4'd3 : begin
+                layer_scale = 16'd26187;
+                layer_shift = 5'd22;
                 width_in = 9'd52;
                 channel_in = 11'd64;
                 channel_out = 11'd128;
@@ -210,6 +220,8 @@ module FSM #(
                 relu_enable = 1'b1;
             end
             4'd4 : begin
+                layer_scale = 16'd24117;
+                layer_shift = 5'd22;
                 width_in = 9'd26;
                 channel_in = 11'd128;
                 channel_out = 11'd256;
@@ -219,6 +231,8 @@ module FSM #(
                 relu_enable = 1'b1;
             end
             4'd5 : begin
+                layer_scale = 16'd20949;
+                layer_shift = 5'd22;
                 width_in = 9'd13;
                 channel_in = 11'd256;
                 channel_out = 11'd512;
@@ -228,6 +242,8 @@ module FSM #(
                 relu_enable = 1'b1;
             end
             4'd6 : begin
+                layer_scale = 16'd24304;
+                layer_shift = 5'd21;
                 width_in = 9'd13;
                 channel_in = 11'd512;
                 channel_out = 11'd1024;
@@ -237,6 +253,8 @@ module FSM #(
                 relu_enable = 1'b1;
             end
             4'd7 : begin
+                layer_scale = 16'd24720;
+                layer_shift = 5'd27;
                 width_in = 9'd13;
                 channel_in = 11'd1024;
                 channel_out = 11'd1024;
@@ -246,6 +264,8 @@ module FSM #(
                 relu_enable = 1'b1;
             end
             4'd8 : begin
+                layer_scale = 16'd31030;
+                layer_shift = 5'd24;
                 width_in = 9'd13;
                 channel_in = 11'd1024;
                 channel_out = 11'd125;
@@ -255,6 +275,8 @@ module FSM #(
                 relu_enable = 1'b0;
             end
             default : begin
+                layer_scale = 16'd0;
+                layer_shift = 5'd0;
                 width_in = 9'd0;
                 channel_in = 11'd0;
                 channel_out = 11'd0;

@@ -23,6 +23,7 @@ reg signed [47:0] s1_prod [0:NUM_CHANNELS-1];
     always @(*) begin
         for (i = 0; i < NUM_CHANNELS; i = i + 1) begin
             in_data[i] = in_data_flat[i*32 +: 32];
+            s1_prod[i] = in_data[i] * scale;
         end
     end
 
@@ -34,7 +35,7 @@ reg signed [47:0] s1_prod [0:NUM_CHANNELS-1];
     end else begin
         s1_valid <= in_valid;
         for (i = 0; i < NUM_CHANNELS; i = i + 1)
-            s1_shifted[i] <= (in_data[i] * scale) >>> shift;  // single stage
+            s1_shifted[i] <= s1_prod[i] >>> shift;
     end
 end
 

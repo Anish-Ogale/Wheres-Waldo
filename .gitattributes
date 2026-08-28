@@ -1,4 +1,11 @@
-# Keep source identical on Windows and Linux; HDL tools accept LF natively.
-* text=auto eol=lf
-*.v  text eol=lf
-*.sv text eol=lf
+# Handle text files automatically and normalize them to LF in the repo
+* text=auto
+
+# Explicitly ensure certain source files use LF when checked out
+*.js text eol=lf
+*.py text eol=lf
+*.sh text eol=lf
+
+# Denote binary files so Git leaves them completely alone
+*.png binary
+*.jpg binary

@@ -48,37 +48,47 @@ void softmax(float *classes, int num_classes) {
     }
 }
 
-// Dummy functions for receiving/sending data
-void receive_image_from_pc(uint8_t* dest_addr) {
-    xil_printf("\r\nWaiting for Image from PC (416x416 padded to 8 channels = 1,384,448 bytes)...\r\n");
+// Receive data from UART
+void receive_data_from_pc(uint8_t* dest_addr, int expected_bytes, const char* name) {
+    xil_printf("\r\nWaiting for %s (%d bytes)...\r\n", name, expected_bytes);
     
-    int expected_bytes = 416 * 416 * 8;
     int received_bytes = 0;
-    
     while (received_bytes < expected_bytes) {
-        // Read as many bytes as are currently in the UART FIFO
         received_bytes += XUartPs_Recv(&uart, dest_addr + received_bytes, expected_bytes - received_bytes);
     }
-    
-    xil_printf("Image fully received and stored in DDR!\r\n");
+    xil_printf("%s fully received and stored in DDR!\r\n", name);
 }
 
 int main() {
-    xil_printf("--- Zynq YOLOv2 Hardware Accelerator ---\r\n");
+    xil_printf("\r\n--- Zynq YOLOv2 Hardware Accelerator ---\r\n");
 
-    // 1. Initialize the AXI GPIO (Device ID usually 0)
-    if (XGpio_Initialize(&ctrl_gpio, XPAR_AXI_GPIO_0_DEVICE_ID) != XST_SUCCESS) {
+    // 1. Initialize the AXI GPIO
+    XGpio_Config *gpio_cfg = XGpio_LookupConfig(XPAR_AXI_GPIO_0_BASEADDR); 
+    if (gpio_cfg == NULL) {
+        xil_printf("GPIO Lookup Failed!\r\n");
+        return XST_FAILURE;
+    }
+    
+    if (XGpio_CfgInitialize(&ctrl_gpio, gpio_cfg, gpio_cfg->BaseAddress) != XST_SUCCESS) {
         xil_printf("GPIO Init Failed!\r\n");
         return XST_FAILURE;
     }
     
-    // Set Channel 1 (Start) as Output, Channel 2 (Done) as Input
     XGpio_SetDataDirection(&ctrl_gpio, 1, 0x0); 
     XGpio_SetDataDirection(&ctrl_gpio, 2, 0x1);
 
-    // 2. Load the Image into DDR memory
+    // Initialize UART
+    XUartPs_Config *uart_cfg = XUartPs_LookupConfig(XPAR_XUARTPS_0_DEVICE_ID);
+    XUartPs_CfgInitialize(&uart, uart_cfg, uart_cfg->BaseAddress);
+    XUartPs_SetBaudRate(&uart, 921600);
+
+    // 2. Load the Weights into DDR memory (15,855,536 bytes)
+    uint8_t* weight_memory = (uint8_t*)WEIGHT_BASE_ADDR;
+    receive_data_from_pc(weight_memory, 15855536, "YOLO Weights");
+
+    // 3. Load the Image into DDR memory (1,384,448 bytes)
     uint8_t* ifm_memory = (uint8_t*)IFM_BASE_ADDR;
-    receive_image_from_pc(ifm_memory);
+    receive_data_from_pc(ifm_memory, 1384448, "Image");
 
     // 3. Flush the Data Cache! 
     // This forces the ARM processor to push the loaded image out of its L1/L2 cache and into the physical DDR chips.

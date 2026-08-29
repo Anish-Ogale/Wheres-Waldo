@@ -35,12 +35,17 @@ end
 wire [width-1:0] next = first_r ? data_in_r : rd_data + data_in_r;
 
 always @(posedge clk) begin
+    if (valid_in_r) begin
+        mem[addr_in_r] <= next;
+    end
+end
+
+always @(posedge clk) begin
     if (rst) begin
         valid_out <= 1'b0;
     end else begin
         valid_out <= 1'b0;
         if (valid_in_r) begin
-            mem[addr_in_r] <= next;
             if (last_r) begin
                 data_out  <= next;
                 addr_out  <= addr_in_r;

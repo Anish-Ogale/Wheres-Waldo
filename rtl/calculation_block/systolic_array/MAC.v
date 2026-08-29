@@ -1,6 +1,6 @@
 `timescale 1ns / 1ps
 
-
+(* use_dsp = "yes" *)
 module MAC #(
 
     parameter pixel_width=8,

@@ -29,8 +29,7 @@ module ofm_buffer #(
     localparam WORD_WIDTH = DATA_WIDTH * ARRAY_SIZE;
     localparam DEPTH = (1 << ADDR_WIDTH);
 
-    (* ram_style = "block" *) reg [WORD_WIDTH-1:0] buff_1 [0:DEPTH-1];
-    (* ram_style = "block" *) reg [WORD_WIDTH-1:0] buff_2 [0:DEPTH-1];
+    (* ram_style = "block" *) reg [WORD_WIDTH-1:0] buff [0:(2*DEPTH)-1];
 
     reg wr_select;
     reg rd_select;
@@ -82,10 +81,7 @@ module ofm_buffer #(
             pooled_wr_addr <= {ADDR_WIDTH{1'b0}};
             stream_done <= 1'b0;
         end else if (wr_en && wr_ready && !stream_done) begin
-            if (wr_select == 1'b0)
-                buff_1[selected_wr_addr] <= wr_data;
-            else
-                buff_2[selected_wr_addr] <= wr_data;
+            buff[{wr_select, selected_wr_addr}] <= wr_data;
 
             if (selected_wr_addr == expected_writes - 1'b1)
                 stream_done <= 1'b1;
@@ -96,10 +92,7 @@ module ofm_buffer #(
 
     always @(posedge clk) begin
         if (rd_en && rd_valid) begin
-            if (rd_select == 1'b0)
-                raw_rd_data <= buff_1[rd_addr];
-            else
-                raw_rd_data <= buff_2[rd_addr];
+            raw_rd_data <= buff[{rd_select, rd_addr}];
         end
     end
 

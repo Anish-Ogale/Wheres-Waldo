@@ -69,6 +69,7 @@ module top (
     reg [17:0] out_pixel_addr_d;
     reg first_pass_d;
     reg finalize_d;
+    reg padding_d;
 
     
     wire relu_enable_r;
@@ -123,11 +124,13 @@ module top (
             out_pixel_addr_d   <= 18'd0;
             first_pass_d       <= 1'b0;
             finalize_d         <= 1'b0;
+            padding_d          <= 1'b0;
         end else begin
             valid_in_d         <= valid_in_fsm;
             out_pixel_addr_d   <= out_pixel_addr_fsm;
             first_pass_d       <= first_pass_fsm;
             finalize_d         <= finalize_fsm;
+            padding_d          <= padding;
         end
     end
 
@@ -231,7 +234,7 @@ module top (
         .clk(clk),
         .rst(rst),
         .wr_en(ifm_we),
-        .wr_addr(bram_addr[10:0]), 
+        .wr_addr(bram_addr[9:0]), 
         .wr_data(bram_wdata),
         .wr_ready(),
         .wr_done(ifm_swap), 
@@ -250,7 +253,7 @@ module top (
         .clk(clk),
         .rst(rst),
         .we_A(weight_we),
-        .addr_A(bram_addr[10:0]),
+        .addr_A(bram_addr[9:0]),
         .din_A(bram_wdata),
         .ena_B(weight_ena),
         .addr_B(weight_addr[9:0]),
@@ -267,7 +270,7 @@ module top (
         .pixel_in(pixel_in),
         .weight_in(weight_in),
         .load_en(load_en), 
-        .padding(padding), 
+        .padding(padding_d), 
         .sum_out(sum_out),
         .valid_in(valid_in_d),
         .addr_in(out_pixel_addr_d[8:0]),
@@ -331,7 +334,7 @@ module top (
         .expected_writes(ofm_expected_writes),
         .stream_done(pool_done),
         .rd_en(wb_rd_en),
-        .rd_addr(bram_addr[10:0]),
+        .rd_addr(bram_addr[9:0]),
         .rd_data(bram_rdata),
         .rd_valid(),
         .rd_done(ofm_rd_swap)

@@ -96,7 +96,7 @@ module AXI_Master#(
     
   
   
-  assign bram_addr = local_addr + burst_count;
+  assign bram_addr = local_addr + burst_count + ((current_state == WRITE_DATA && wready && wvalid) ? 1'b1 : 1'b0);
 assign wdata = bram_rdata;
 assign bram_wdata = rdata;
   assign bram_we = (current_state == READ_DATA) && rvalid && rready;

@@ -9,8 +9,8 @@ module ifm_buffer #(
     input rst,
 
     input wr_en,
-    input [ADDR_WIDTH:0] wr_addr,
-    input [(DATA_WIDTH*ARRAY_SIZE/2)-1:0] wr_data,
+    input [ADDR_WIDTH-1:0] wr_addr,
+    input [(DATA_WIDTH*ARRAY_SIZE)-1:0] wr_data,
     output wire wr_ready,
     input wr_done,
 
@@ -22,7 +22,6 @@ module ifm_buffer #(
 );
 
     localparam WORD_WIDTH = DATA_WIDTH * ARRAY_SIZE;
-    localparam HALF_WIDTH = WORD_WIDTH / 2;
     localparam DEPTH = (1 << ADDR_WIDTH);
 
     (* ram_style = "block" *) reg [WORD_WIDTH-1:0] buff_1 [0:DEPTH-1];
@@ -35,9 +34,6 @@ module ifm_buffer #(
     reg buff_2_full;
 
     reg [WORD_WIDTH-1:0] raw_rd_data;
-
-    reg [HALF_WIDTH-1:0] wr_pend;
-    reg wr_pend_valid;
 
     assign wr_ready = (wr_select == 1'b0) ? ~buff_1_full :
                                              ~buff_2_full;
@@ -78,23 +74,11 @@ module ifm_buffer #(
     end
 
     always @(posedge clk) begin
-        if (rst) begin
-            wr_pend_valid <= 1'b0;
-        end
-        else begin
-            if (wr_en && wr_ready) begin
-                if (wr_addr[0] == 1'b0) begin
-                    wr_pend       <= wr_data;
-                    wr_pend_valid <= 1'b1;
-                end
-                else begin
-                    if (wr_select == 1'b0)
-                        buff_1[wr_addr[ADDR_WIDTH:1]] <= {wr_data, wr_pend};
-                    else
-                        buff_2[wr_addr[ADDR_WIDTH:1]] <= {wr_data, wr_pend};
-                    wr_pend_valid <= 1'b0;
-                end
-            end
+        if (wr_en && wr_ready) begin
+            if (wr_select == 1'b0)
+                buff_1[wr_addr] <= wr_data;
+            else
+                buff_2[wr_addr] <= wr_data;
         end
     end
 

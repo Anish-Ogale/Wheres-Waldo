@@ -208,6 +208,7 @@ module tb_top ();
     // Test Sequence
     // ---------------------------------------------------------
     integer i;
+    integer modified_count;
     initial begin
         $display("==================================================");
         $display("[%0t] Initializing Memory Model with deterministic values...", $time);
@@ -215,12 +216,14 @@ module tb_top ();
         // Fill memory with a deterministic pattern (e.g. 0x0706050403020100 for word 0)
         // Helps to distinguish between default uninitialized states
         for (i = 0; i < 2097152; i = i + 1) begin
-            mem[i] = { 
-                (($unsigned(i)*8+7)%256), (($unsigned(i)*8+6)%256), 
-                (($unsigned(i)*8+5)%256), (($unsigned(i)*8+4)%256), 
-                (($unsigned(i)*8+3)%256), (($unsigned(i)*8+2)%256), 
-                (($unsigned(i)*8+1)%256), (($unsigned(i)*8)%256) 
-            };
+            mem[i][63:56] = ($unsigned(i)*8+7)%256;
+            mem[i][55:48] = ($unsigned(i)*8+6)%256;
+            mem[i][47:40] = ($unsigned(i)*8+5)%256;
+            mem[i][39:32] = ($unsigned(i)*8+4)%256;
+            mem[i][31:24] = ($unsigned(i)*8+3)%256;
+            mem[i][23:16] = ($unsigned(i)*8+2)%256;
+            mem[i][15:8]  = ($unsigned(i)*8+1)%256;
+            mem[i][7:0]   = ($unsigned(i)*8)%256;
         end
         
         $display("[%0t] Applying Reset...", $time);
@@ -245,8 +248,8 @@ module tb_top ();
         // Or timeout after a reasonable period
         fork
             begin
-                wait (u_top.u_FSM.layer_count == 1);
-                $display("[%0t] Layer 0 Processing Completed! Moving to Layer 1.", $time);
+                wait (u_top.u_FSM.tile_x_base == 48); // Wait until Tile 3 starts
+                $display("[%0t] Tile 3 Reached! Exiting early for fast testing.", $time);
             end
             begin
                 #50000000; // 50ms Timeout for simulation (adjust as necessary for full layer processing)
@@ -257,17 +260,26 @@ module tb_top ();
         $display("[%0t] Simulation finished. Inspecting modified memory locations for Output Feature Maps (OFMs):", $time);
         
         // Inspect a slice of memory to check if anything was overwritten
-        // Note: A real check would look at the exact OFM base address
+        // We only print the first 10 modifications to avoid terminal spam
+        modified_count = 0;
         for (i = 0; i < 2097152; i = i + 1) begin
-            if (mem[i] !== { 
-                (($unsigned(i)*8+7)%256), (($unsigned(i)*8+6)%256), 
-                (($unsigned(i)*8+5)%256), (($unsigned(i)*8+4)%256), 
-                (($unsigned(i)*8+3)%256), (($unsigned(i)*8+2)%256), 
-                (($unsigned(i)*8+1)%256), (($unsigned(i)*8)%256) 
-            }) begin
-                $display("Mem[%0h] (Addr %0h) = %h", i, i*8, mem[i]);
+            if (
+                mem[i][63:56] !== (($unsigned(i)*8+7)%256) ||
+                mem[i][55:48] !== (($unsigned(i)*8+6)%256) ||
+                mem[i][47:40] !== (($unsigned(i)*8+5)%256) ||
+                mem[i][39:32] !== (($unsigned(i)*8+4)%256) ||
+                mem[i][31:24] !== (($unsigned(i)*8+3)%256) ||
+                mem[i][23:16] !== (($unsigned(i)*8+2)%256) ||
+                mem[i][15:8]  !== (($unsigned(i)*8+1)%256) ||
+                mem[i][7:0]   !== (($unsigned(i)*8)%256)
+            ) begin
+                modified_count = modified_count + 1;
+                if (modified_count <= 10) begin
+                    $display("Mem[%0h] (Addr %0h) = %h", i, i*8, mem[i]);
+                end
             end
         end
+        $display("[%0t] Total modified memory words (OFM writes): %0d", $time, modified_count);
         
         $display("==================================================");
         $finish;
@@ -276,7 +288,7 @@ module tb_top ();
     // ---------------------------------------------------------
     // Monitoring State Changes
     // ---------------------------------------------------------
-    // This allows us to observe the flow of structural data without spamming the console
+    // Reduced printing to avoid console spam
     reg [3:0] prev_state;
     initial prev_state = 4'hF; // Invalid initially
     
@@ -284,19 +296,23 @@ module tb_top ();
         if (!rst && (u_top.u_FSM.current_state != prev_state)) begin
             prev_state <= u_top.u_FSM.current_state;
             
-            case (u_top.u_FSM.current_state)
-                0: $display("[%0t] FSM: IDLE", $time);
-                1: $display("[%0t] FSM: LOAD_LAYER_PARAMS (Layer %0d)", $time, u_top.u_FSM.layer_count);
-                2: $display("[%0t] FSM: LOAD_WEIGHTS", $time);
-                3: $display("[%0t] FSM: FILL_FMAP (Tile X:%0d, Y:%0d, InTile:%0d)", $time, u_top.u_FSM.tile_x_base, u_top.u_FSM.tile_y_base, u_top.u_FSM.in_tile);
-                4: $display("[%0t] FSM: CALC", $time);
-                5: $display("[%0t] FSM: DRAIN", $time);
-                6: $display("[%0t] FSM: POOL", $time);
-                7: $display("[%0t] FSM: WRITEBACK (OutTile:%0d)", $time, u_top.u_FSM.out_tile);
-                8: $display("[%0t] FSM: NEXT_TILE_CHECK", $time);
-                9: $display("[%0t] FSM: LOAD_ARRAY", $time);
-                default: $display("[%0t] FSM: UNKNOWN STATE", $time);
-            endcase
+            // Only print major milestones to avoid terminal spam
+            if (u_top.u_FSM.current_state == 1)
+                $display("[%0t] FSM: LOAD_LAYER_PARAMS (Layer %0d)", $time, u_top.u_FSM.layer_count);
+            else if (u_top.u_FSM.current_state == 7 && u_top.u_FSM.out_tile == 0) // Only print the start of writeback for each spatial tile
+                $display("[%0t] FSM: WRITEBACK (Tile X:%0d, Y:%0d)", $time, u_top.u_FSM.tile_x_base, u_top.u_FSM.tile_y_base);
+        end
+    end
+
+    // X Monitor
+    always @(posedge clk) begin
+        if (!rst) begin
+            if (u_top.pixel_in === 64'hx) $display("[%0t] ERROR: pixel_in is X!", $time);
+            if (u_top.weight_in === 64'hx && u_top.load_en) $display("[%0t] ERROR: weight_in is X when load_en=1!", $time);
+            if (u_top.sum_out === 256'hx && u_top.calc_valid_out) $display("[%0t] ERROR: sum_out is X when calc_valid_out=1!", $time);
+            if (u_top.post_data_out === 64'hx && u_top.post_out_valid) $display("[%0t] ERROR: post_data_out is X when post_out_valid=1!", $time);
+            if (u_top.pooled_flat === 64'hx && u_top.pool_valid_out) $display("[%0t] ERROR: pooled_flat is X when pool_valid_out=1!", $time);
+            if (u_top.wdata === 64'hx && u_top.wvalid) $display("[%0t] ERROR: wdata is X when wvalid=1!", $time);
         end
     end
 

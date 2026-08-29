@@ -81,7 +81,7 @@ always @(*) begin
         2'b01: begin // IFM
 
             if (y + row_idx < width_in) begin
-                ddr_addr = current_ifmap_base + (((y + row_idx)*width_in + x) * 4);
+                ddr_addr = current_ifmap_base + (((y + row_idx)*width_in + x) * 8);
                 if (width_in - x < 9'd18) length = width_in - x;
                 else length = 8'd18;
             end else begin
@@ -116,7 +116,7 @@ always @(*) begin
             end
 
             if (row_idx < active_h) begin
-                ddr_addr = current_ofmap_base + (((out_y + row_idx)*width_out + out_x) * 4);
+                ddr_addr = current_ofmap_base + (((out_y + row_idx)*width_out + out_x) * 8);
                 length = active_w;
             end else begin
                 length = 0;

@@ -34,9 +34,15 @@ Three RTL modules handle this conversion:
 * **frame_sync** - detects start-of-frame from VSYNC's falling edge and generates a clean, synchronous start-of-frame pulse.
 * **ov7670_capture** - top-level module combining both, producing a proper AXI4-Stream output.
 
+  <img width="319" height="129" alt="Screenshot 2026-08-30 133045" src="https://github.com/user-attachments/assets/0653c92b-67a8-49ad-b485-d2f69f5199db" />
+
+
 Since the camera's pixel clock domain is asynchronous to the system/AXI clock, the stream is passed through an AXI4-Stream Data FIFO (independent-clocks mode) to safely cross clock domains before reaching memory.
 
 From there, AXI VDMA IP (S2MM channel) writes incoming frames into DDR3 with triple buffering, offloading the ARM core (PS) from copying pixel data manually. Camera control (SCCB) and reset/power-down lines are driven via two AXI GPIO IPs, and a Clocking Wizard generates the 24 MHz XCLK the sensor requires.
+
+<img width="317" height="118" alt="Screenshot 2026-08-30 133101" src="https://github.com/user-attachments/assets/624a831d-7b4e-4d73-bc27-bb5d8ba73fff" />
+
 
 ## Hardware and Software Used
 * **Board:** Xilinx Zynq-7000 SoC ZC702 Evaluation Kit

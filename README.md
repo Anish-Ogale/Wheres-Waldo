@@ -13,6 +13,9 @@ A custom convolution engine on an FPGA that powers a real time YOLO object detec
 * **AXI Burst:** Custom AXI code which sends data in bursts instead of single pixel by pixel which reduces number of memory addresses and improves speed.
 * **Post Processing** Data from matrix multiplication outputs is first accumulated for complete sums, after which Leaky ReLU, 8 bit quantization and pooling is performed on it.
 
+<img width="500" height="250" alt="image" src="https://github.com/user-attachments/assets/d85e9257-42ae-4ad3-92bd-96aefb672663" />
+
+
 ### PL Flow
 
 Pixel data flows in to the DDR3. The image is sent tile by tile to the input ping pong buffers. It is then skewed and passed through the systolic array for matrix multiplication with the weights which are tracked via the weight buffer. 
@@ -21,6 +24,9 @@ The partial sums are accumulated into complete sums in the accumulator module. L
 
 
 The processed pixels are sent back to DDR3 via output buffers, and sent back via AXI Burst.
+
+<img width="500" height="250" alt="image" src="https://github.com/user-attachments/assets/d1ff6ec3-b502-46c2-8feb-9bf31171ac51" />
+
 
 ### Camera Pipeline Flow
 The OV7670 outputs raw parallel video (PCLK, VSYNC, HREF, and a 6-bit data bus) rather than a standard streaming interface, so custom RTL was written to convert it into an AXI4-Stream. Before capture, the sensor is configured over SCCB (an I2C-like protocol) to set resolution (QVGA) and output format (RGB565).

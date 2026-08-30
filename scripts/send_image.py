@@ -58,9 +58,15 @@ def main():
         chunk = img_bytes[i:i+chunk_size]
         ser.write(chunk)
         
+        # Wait for ACK from Zynq to prevent buffer overflow
+        ack = ser.read(1)
+        if ack != b'A':
+            print(f"\nError: Expected ACK 'A', got {ack}. Zynq might have crashed or desynced.")
+            sys.exit(1)
+        
         # Simple progress bar
-        progress = int(50 * i / len(img_bytes))
-        sys.stdout.write(f"\r[{'='*progress}{' '*(50-progress)}] {i}/{len(img_bytes)} bytes")
+        progress = int(50 * (i + len(chunk)) / len(img_bytes))
+        sys.stdout.write(f"\r[{'='*progress}{' '*(50-progress)}] {i + len(chunk)}/{len(img_bytes)} bytes")
         sys.stdout.flush()
         
     sys.stdout.write(f"\r[{'='*50}] {len(img_bytes)}/{len(img_bytes)} bytes\n")

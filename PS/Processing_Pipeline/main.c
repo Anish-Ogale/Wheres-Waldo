@@ -48,13 +48,26 @@ void softmax(float *classes, int num_classes) {
     }
 }
 
-// Receive data from UART
+// Receive data from UART with ACK handshake
 void receive_data_from_pc(uint8_t* dest_addr, int expected_bytes, const char* name) {
     xil_printf("\r\nWaiting for %s (%d bytes)...\r\n", name, expected_bytes);
     
     int received_bytes = 0;
+    int chunk_size = 4096;
+    
     while (received_bytes < expected_bytes) {
-        received_bytes += XUartPs_Recv(&uart, dest_addr + received_bytes, expected_bytes - received_bytes);
+        int bytes_to_read = expected_bytes - received_bytes;
+        if (bytes_to_read > chunk_size) bytes_to_read = chunk_size;
+        
+        int chunk_received = 0;
+        while (chunk_received < bytes_to_read) {
+            chunk_received += XUartPs_Recv(&uart, dest_addr + received_bytes + chunk_received, bytes_to_read - chunk_received);
+        }
+        received_bytes += chunk_received;
+        
+        // Send ACK back to PC so it sends the next chunk
+        u8 ack = 'A';
+        XUartPs_Send(&uart, &ack, 1);
     }
     xil_printf("%s fully received and stored in DDR!\r\n", name);
 }
@@ -63,10 +76,13 @@ int main() {
     xil_printf("\r\n--- Zynq YOLOv2 Hardware Accelerator ---\r\n");
 
     // 1. Initialize the AXI GPIO
-    XGpio_Config *gpio_cfg = XGpio_LookupConfig(XPAR_AXI_GPIO_0_BASEADDR); 
+    XGpio_Config *gpio_cfg = XGpio_LookupConfig(XPAR_AXI_GPIO_0_DEVICE_ID); 
     if (gpio_cfg == NULL) {
-        xil_printf("GPIO Lookup Failed!\r\n");
-        return XST_FAILURE;
+        xil_printf("GPIO Lookup Failed! Trying Device ID 0...\r\n");
+        gpio_cfg = XGpio_LookupConfig(0);
+        if (gpio_cfg == NULL) {
+            return XST_FAILURE;
+        }
     }
     
     if (XGpio_CfgInitialize(&ctrl_gpio, gpio_cfg, gpio_cfg->BaseAddress) != XST_SUCCESS) {

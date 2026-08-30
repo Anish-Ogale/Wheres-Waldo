@@ -1,0 +1,548 @@
+`timescale 1ns / 1ps
+
+module FSM #(
+    parameter IDLE = 0,
+    parameter LOAD_LAYER_PARAMS = 1,
+    parameter LOAD_WEIGHTS = 2,
+    parameter FILL_FMAP = 3,
+    parameter CALC = 4,
+    parameter DRAIN = 5,
+    parameter POOL = 6,
+    parameter WRITEBACK = 7,
+    parameter NEXT_TILE_CHECK = 8,
+    parameter LOAD_ARRAY = 9
+)(
+    input wire clk,
+    input wire rst,
+    input wire start,
+    output wire ifm_swap,
+    output wire ifm_rd_done,
+    output wire ofm_wr_swap,
+    output wire ofm_rd_swap,
+    output wire valid_in,
+    output wire padding,
+    output wire done,
+    output wire req,
+    input wire seq_done,
+    output wire we,
+    output wire [1:0] region_sel,
+    output reg [3:0] layer_count,
+    output reg [7:0] in_tile,
+    output reg [7:0] out_tile,
+    output reg [1:0] kx,
+    output reg [1:0] ky,
+    output wire [8:0] x,
+    output wire [8:0] y,
+    output reg [8:0] width_in_r,
+    output reg [7:0] num_in_tiles_r,
+    output reg kernel_size_r,
+    output wire first_pass,
+    output wire finalize,
+    output wire pool_start,
+
+    output wire pool_tile_start,
+    output wire [4:0] active_tile_width,
+    output wire [4:0] active_tile_height,
+    output wire [9:0] ofm_expected_writes,
+    input wire pool_done,
+    output wire pool_select,
+    output reg pool_enable_r,
+    output reg relu_enable_r,
+    output wire [17:0] fmap_read_addr,
+    output wire [17:0] out_pixel_addr,
+    output wire [9:0] weight_addr,
+    output wire wb_rd_en,
+    output wire weight_ena,
+    output wire load_en,
+    output reg signed [15:0] layer_scale,
+    output reg [4:0] layer_shift
+);
+
+    reg [3:0] current_state;
+    reg [3:0] next_state;
+
+    localparam ARRAY_SIZE = 4'd8;
+    reg [3:0] load_cnt;
+
+    localparam TILE_DIM = 16;
+    localparam HALO_DIM = 18;
+    localparam DRAIN_CYCLES = 4'd10;
+
+    reg [8:0] tile_x_base, tile_y_base;
+    reg [4:0] tile_x, tile_y;
+    reg [8:0] fetched_tile_x_r, fetched_tile_y_r;
+    reg [3:0] drain_cnt;
+
+    reg [8:0] width_in;
+    reg [10:0] channel_in;
+    reg [10:0] channel_out;
+    reg kernel_size;
+    reg pool_enable;
+    reg pool_stride;
+    reg relu_enable;
+
+    reg [7:0] num_in_tiles;
+    reg [7:0] num_out_tiles;
+
+    reg [10:0] channel_in_r;
+    reg [10:0] channel_out_r;
+    reg pool_stride_r;
+
+    reg [7:0] num_out_tiles_r;
+
+    reg fetched_in_tile_valid;
+    reg [7:0] fetched_in_tile_r;
+
+    reg [3:0] prev_state;
+
+    reg req_issued;
+
+    reg pool_req_issued;
+
+    wire bounds_x = kernel_size_r && ( ( (x==0)&&(kx==0) ) || ( (x==width_in_r-1) && (kx==2) ) );
+    wire bounds_y = kernel_size_r && ( ( (y==0)&&(ky==0) ) || ( (y==width_in_r-1) && (ky==2) ) );
+
+    assign padding = (bounds_x || bounds_y);
+
+
+    assign valid_in = (current_state == CALC) && in_bounds;
+
+    assign x = tile_x_base + tile_x;
+    assign y = tile_y_base + tile_y;
+    assign active_tile_width = (width_in_r - tile_x_base < TILE_DIM) ?
+                               (width_in_r - tile_x_base) : TILE_DIM;
+    assign active_tile_height = (width_in_r - tile_y_base < TILE_DIM) ?
+                                (width_in_r - tile_y_base) : TILE_DIM;
+   
+    assign ofm_expected_writes = !pool_enable_r ?
+                                 active_tile_width * active_tile_height :
+                                 pool_stride_r ?
+                                 (active_tile_width >> 1) * (active_tile_height >> 1) :
+                                 (active_tile_width - 1'b1) * (active_tile_height - 1'b1);
+
+    wire [4:0] hx = tile_x + kx;
+    wire [4:0] hy = tile_y + ky;
+    assign fmap_read_addr = hy*HALO_DIM + hx;
+    assign out_pixel_addr = tile_y*TILE_DIM + tile_x;
+
+    assign weight_addr = load_cnt;
+    assign weight_ena = (current_state==LOAD_ARRAY) && (load_cnt < ARRAY_SIZE);
+    assign load_en = (current_state==LOAD_ARRAY) && (load_cnt >= 4'd1);
+
+    assign wb_rd_en = (current_state==WRITEBACK);
+
+    wire [1:0] k_max = kernel_size_r ? 2'd2 : 2'd0;
+
+    wire need_fetch = (!fetched_in_tile_valid) || (in_tile != fetched_in_tile_r) ||
+                       (tile_x_base != fetched_tile_x_r) || (tile_y_base != fetched_tile_y_r);
+
+    wire in_bounds = (x < width_in_r) && (y < width_in_r);
+
+    wire tap_last = (kx==k_max) && (ky==k_max) && (in_tile==num_in_tiles_r-1);
+    wire out_tile_last = (out_tile==num_out_tiles_r-1);
+    wire tile_row_last = (tile_x_base + TILE_DIM >= width_in_r);
+    wire tile_col_last = (tile_y_base + TILE_DIM >= width_in_r);
+    wire layer_wrap = tap_last && out_tile_last && tile_row_last && tile_col_last;
+    wire drain_wait_done = (drain_cnt == DRAIN_CYCLES-1);
+
+    assign first_pass = (kx==0) && (ky==0) && (in_tile==0);
+    assign finalize = tap_last;
+
+    assign done = (current_state==NEXT_TILE_CHECK) && layer_wrap && (layer_count==4'd8);
+
+    assign region_sel = (current_state==LOAD_WEIGHTS) ? 2'b00 :
+                         (current_state==FILL_FMAP)   ? 2'b01 :
+                         (current_state==WRITEBACK)   ? 2'b10 :
+                                                        2'b00;
+
+    assign we = (current_state==WRITEBACK);
+
+    assign req = ((current_state==LOAD_WEIGHTS) && !req_issued) ||
+                 ((current_state==FILL_FMAP) && need_fetch && !req_issued) ||
+                 ((current_state==WRITEBACK) && !req_issued);
+
+    assign pool_select = pool_stride_r;
+    assign pool_start = (current_state==POOL) && !pool_req_issued;
+    assign pool_tile_start = (current_state==CALC) && finalize &&
+                             (tile_x==0) && (tile_y==0);
+
+    assign ifm_swap = (current_state==FILL_FMAP) && seq_done;
+    assign ifm_rd_done = (current_state==CALC) &&
+                         (tile_x==TILE_DIM-1) && (tile_y==TILE_DIM-1);
+
+    assign ofm_wr_swap = (current_state==POOL && pool_done);
+    assign ofm_rd_swap = (current_state==WRITEBACK) && seq_done;
+
+    always @(*) begin
+        case(layer_count)
+            4'd0 : begin
+                layer_scale = 16'd27209;
+                layer_shift = 5'd17;
+                width_in = 9'd416;
+                channel_in = 11'd3;
+                channel_out = 11'd16;
+                kernel_size = 1'b1;
+                pool_enable = 1'b1;
+                pool_stride = 1'b1;
+                relu_enable = 1'b1;
+            end
+            4'd1 : begin
+                layer_scale = 16'd21949;
+                layer_shift = 5'd22;
+                width_in = 9'd208;
+                channel_in = 11'd16;
+                channel_out = 11'd32;
+                kernel_size = 1'b1;
+                pool_enable = 1'b1;
+                pool_stride = 1'b1;
+                relu_enable = 1'b1;
+            end
+            4'd2 : begin
+                layer_scale = 16'd21687;
+                layer_shift = 5'd21;
+                width_in = 9'd104;
+                channel_in = 11'd32;
+                channel_out = 11'd64;
+                kernel_size = 1'b1;
+                pool_enable = 1'b1;
+                pool_stride = 1'b1;
+                relu_enable = 1'b1;
+            end
+            4'd3 : begin
+                layer_scale = 16'd26187;
+                layer_shift = 5'd22;
+                width_in = 9'd52;
+                channel_in = 11'd64;
+                channel_out = 11'd128;
+                kernel_size = 1'b1;
+                pool_enable = 1'b1;
+                pool_stride = 1'b1;
+                relu_enable = 1'b1;
+            end
+            4'd4 : begin
+                layer_scale = 16'd24117;
+                layer_shift = 5'd22;
+                width_in = 9'd26;
+                channel_in = 11'd128;
+                channel_out = 11'd256;
+                kernel_size = 1'b1;
+                pool_enable = 1'b1;
+                pool_stride = 1'b1;
+                relu_enable = 1'b1;
+            end
+            4'd5 : begin
+                layer_scale = 16'd20949;
+                layer_shift = 5'd22;
+                width_in = 9'd13;
+                channel_in = 11'd256;
+                channel_out = 11'd512;
+                kernel_size = 1'b1;
+                pool_enable = 1'b1;
+                pool_stride = 1'b0;
+                relu_enable = 1'b1;
+            end
+            4'd6 : begin
+                layer_scale = 16'd24304;
+                layer_shift = 5'd21;
+                width_in = 9'd13;
+                channel_in = 11'd512;
+                channel_out = 11'd1024;
+                kernel_size = 1'b1;
+                pool_enable = 1'b0;
+                pool_stride = 1'b0;
+                relu_enable = 1'b1;
+            end
+            4'd7 : begin
+                layer_scale = 16'd24720;
+                layer_shift = 5'd27;
+                width_in = 9'd13;
+                channel_in = 11'd1024;
+                channel_out = 11'd1024;
+                kernel_size = 1'b1;
+                pool_enable = 1'b0;
+                pool_stride = 1'b0;
+                relu_enable = 1'b1;
+            end
+            4'd8 : begin
+                layer_scale = 16'd31030;
+                layer_shift = 5'd24;
+                width_in = 9'd13;
+                channel_in = 11'd1024;
+                channel_out = 11'd125;
+                kernel_size = 1'b0;
+                pool_enable = 1'b0;
+                pool_stride = 1'b0;
+                relu_enable = 1'b0;
+            end
+            default : begin
+                layer_scale = 16'd0;
+                layer_shift = 5'd0;
+                width_in = 9'd0;
+                channel_in = 11'd0;
+                channel_out = 11'd0;
+                kernel_size = 1'b0;
+                pool_enable = 1'b0;
+                pool_stride = 1'b0;
+                relu_enable = 1'b0;
+            end
+        endcase
+        num_in_tiles = (channel_in + 11'd7)/11'd8;
+        num_out_tiles = (channel_out + 11'd7)/11'd8;
+    end
+
+    always @(posedge clk) begin
+        if(rst) begin
+            load_cnt <= 4'd0;
+        end else if(current_state==LOAD_ARRAY) begin
+            if(load_cnt < ARRAY_SIZE) begin
+                load_cnt <= load_cnt + 1'b1;
+            end
+        end else begin
+            load_cnt <= 4'd0;
+        end
+    end
+
+    always @(posedge clk) begin
+        if(rst) begin
+            drain_cnt <= 4'd0;
+        end else if(current_state==DRAIN) begin
+            if(!drain_wait_done) begin
+                drain_cnt <= drain_cnt + 1'b1;
+            end
+        end else begin
+            drain_cnt <= 4'd0;
+        end
+    end
+
+    always @(posedge clk) begin
+        if(rst) begin
+            current_state <= IDLE;
+        end else begin
+            current_state <= next_state;
+        end
+    end
+
+    always @(posedge clk) begin
+        if(rst) begin
+            prev_state <= IDLE;
+            req_issued <= 1'b0;
+        end else begin
+            prev_state <= current_state;
+            if(current_state != prev_state) begin
+                req_issued <= 1'b0;
+            end else if(current_state==LOAD_WEIGHTS || current_state==FILL_FMAP || current_state==WRITEBACK) begin
+                req_issued <= 1'b1;
+            end
+        end
+    end
+
+    always @(posedge clk) begin
+        if(rst) begin
+            pool_req_issued <= 1'b0;
+        end else if(current_state==POOL) begin
+            pool_req_issued <= 1'b1;
+        end else begin
+            pool_req_issued <= 1'b0;
+        end
+    end
+
+    always @(posedge clk) begin
+        if(rst) begin
+            fetched_in_tile_valid <= 1'b0;
+            fetched_in_tile_r <= 8'd0;
+            fetched_tile_x_r <= 9'd0;
+            fetched_tile_y_r <= 9'd0;
+        end else if(current_state==LOAD_LAYER_PARAMS) begin
+            fetched_in_tile_valid <= 1'b0;
+        end else if(current_state==FILL_FMAP && seq_done) begin
+            fetched_in_tile_r <= in_tile;
+            fetched_tile_x_r <= tile_x_base;
+            fetched_tile_y_r <= tile_y_base;
+            fetched_in_tile_valid <= 1'b1;
+        end
+    end
+
+    always @(posedge clk) begin
+        if(rst) begin
+            kx <= 2'd0;
+            ky <= 2'd0;
+            tile_x <= 5'd0;
+            tile_y <= 5'd0;
+            tile_x_base <= 9'd0;
+            tile_y_base <= 9'd0;
+            in_tile <= 8'd0;
+            out_tile <= 8'd0;
+            layer_count <= 4'd0;
+        end else begin
+            case(current_state)
+                IDLE : begin
+                    kx <= 2'd0;
+                    ky <= 2'd0;
+                    tile_x <= 5'd0;
+                    tile_y <= 5'd0;
+                    tile_x_base <= 9'd0;
+                    tile_y_base <= 9'd0;
+                    in_tile <= 8'd0;
+                    out_tile <= 8'd0;
+                end
+
+                LOAD_LAYER_PARAMS : begin
+                    width_in_r <= width_in;
+                    channel_in_r <= channel_in;
+                    channel_out_r <= channel_out;
+                    kernel_size_r <= kernel_size;
+                    pool_enable_r <= pool_enable;
+                    pool_stride_r <= pool_stride;
+                    relu_enable_r <= relu_enable;
+                    num_in_tiles_r <= num_in_tiles;
+                    num_out_tiles_r <= num_out_tiles;
+                end
+
+                LOAD_WEIGHTS : begin
+                end
+
+                FILL_FMAP : begin
+                end
+
+                CALC : begin
+                    if(tile_x == TILE_DIM-1) begin
+                        tile_x <= 5'd0;
+                        if(tile_y == TILE_DIM-1) begin
+                            tile_y <= 5'd0;
+                        end else begin
+                            tile_y <= tile_y + 1'b1;
+                        end
+                    end else begin
+                        tile_x <= tile_x + 1'b1;
+                    end
+                end
+
+                DRAIN: begin
+                end
+
+                POOL : begin
+                end
+
+                WRITEBACK : begin
+                end
+
+                NEXT_TILE_CHECK : begin
+                    tile_x <= 5'd0;
+                    tile_y <= 5'd0;
+
+                    if(kx == k_max) begin
+                        kx <= 2'd0;
+                        if(ky == k_max) begin
+                            ky <= 2'd0;
+                            if(in_tile == num_in_tiles_r-1) begin
+                                in_tile <= 8'd0;
+                                if(out_tile_last) begin
+                                    out_tile <= 8'd0;
+                                    if(tile_row_last) begin
+                                        tile_x_base <= 9'd0;
+                                        if(tile_col_last) begin
+                                            tile_y_base <= 9'd0;
+                                            if(layer_count == 4'd8) begin
+                                                layer_count <= 4'd0;
+                                            end else begin
+                                                layer_count <= layer_count + 1'b1;
+                                            end
+                                        end else begin
+                                            tile_y_base <= tile_y_base + TILE_DIM;
+                                        end
+                                    end else begin
+                                        tile_x_base <= tile_x_base + TILE_DIM;
+                                    end
+                                end else begin
+                                    out_tile <= out_tile + 1'b1;
+                                end
+                            end else begin
+                                in_tile <= in_tile + 1'b1;
+                            end
+                        end else begin
+                            ky <= ky + 1'b1;
+                        end
+                    end else begin
+                        kx <= kx + 1'b1;
+                    end
+                end
+            endcase
+        end
+    end
+
+    always @(*) begin
+        next_state = current_state;
+        case(current_state)
+            IDLE : begin
+                if(start) begin
+                    next_state = LOAD_LAYER_PARAMS;
+                end
+            end
+
+            LOAD_LAYER_PARAMS : begin
+                next_state = LOAD_WEIGHTS;
+            end
+
+            LOAD_WEIGHTS : begin
+                if(seq_done) begin
+                    next_state = FILL_FMAP;
+                end
+            end
+
+            FILL_FMAP : begin
+                if(!need_fetch) begin
+                    next_state = LOAD_ARRAY;
+                end else if(seq_done) begin
+                    next_state = LOAD_ARRAY;
+                end
+            end
+
+            LOAD_ARRAY : begin
+                if(load_cnt==ARRAY_SIZE) begin
+                    next_state = CALC;
+                end
+            end
+
+            CALC : begin
+                if((tile_x==TILE_DIM-1)&&(tile_y==TILE_DIM-1)) begin
+                    next_state = DRAIN;
+                end
+            end
+
+            DRAIN : begin
+                if(drain_wait_done) begin
+                    if(finalize) begin
+
+                        next_state = POOL;
+                    end else begin
+                        next_state = NEXT_TILE_CHECK;
+                    end
+                end
+            end
+
+            POOL : begin
+                if(pool_done) begin
+                    next_state = WRITEBACK;
+                end
+            end
+
+            WRITEBACK : begin
+                if(seq_done) begin
+                    next_state = NEXT_TILE_CHECK;
+                end
+            end
+
+            NEXT_TILE_CHECK : begin
+                if(layer_wrap) begin
+                    if(layer_count == 4'd8) begin
+                        next_state = IDLE;
+                    end else begin
+                        next_state = LOAD_LAYER_PARAMS;
+                    end
+                end else begin
+                    next_state = LOAD_WEIGHTS;
+                end
+            end
+        endcase
+    end
+endmodule

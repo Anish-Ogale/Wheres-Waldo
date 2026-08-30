@@ -13,7 +13,6 @@ A custom convolution engine on an FPGA that powers a real time YOLO object detec
 * **AXI Burst:** Custom AXI code which sends data in bursts instead of single pixel by pixel which reduces number of memory addresses and improves speed.
 * **Post Processing** Data from matrix multiplication outputs is first accumulated for complete sums, after which Leaky ReLU, 8 bit quantization and pooling is performed on it.
 
-<img width="500" height="250" alt="image" src="https://github.com/user-attachments/assets/d85e9257-42ae-4ad3-92bd-96aefb672663" />
 
 
 ### PL Flow
@@ -25,7 +24,6 @@ The partial sums are accumulated into complete sums in the accumulator module. L
 
 The processed pixels are sent back to DDR3 via output buffers, and sent back via AXI Burst.
 
-<img width="500" height="250" alt="image" src="https://github.com/user-attachments/assets/d1ff6ec3-b502-46c2-8feb-9bf31171ac51" />
 
 
 ### Camera Pipeline Flow
